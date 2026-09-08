@@ -605,13 +605,16 @@ class GenericSwitchDriver(api.MechanismDriver):
         port_id = link.get('port_id')
         if switch is None or port_id is None:
             return None
+        # Only a real interface name counts: a device that has no mapping
+        # answers None, and nothing else (a mock, a truthy object) should be
+        # mistaken for one.
         bond = switch.get_port_channel(port_id)
-        if bond:
+        if isinstance(bond, str) and bond:
             return bond
         if ngs_utils.is_802_3ad(binding_profile):
             name = (binding_profile.get('local_group_information') or
                     {}).get('name')
-            if name:
+            if isinstance(name, str) and name:
                 return name
         return None
 
@@ -1247,6 +1250,8 @@ class GenericSwitchDriver(api.MechanismDriver):
         if not local_link_information:
             return
 
+        # Sub-port changes on a bonded host go to the aggregate too, once.
+        done = set()
         for link in local_link_information:
             port_id = link.get('port_id')
             switch_info = link.get('switch_info')
@@ -1254,9 +1259,16 @@ class GenericSwitchDriver(api.MechanismDriver):
             switch = device_utils.get_switch_device(
                 self.switches, switch_info=switch_info,
                 ngs_mac_address=switch_id)
+            if not switch:
+                continue
+            bond = self._aggregate_for_link(switch, binding_profile, link)
+            target = (id(switch), bond or port_id)
+            if target in done:
+                continue
+            done.add(target)
 
             switch.add_subports_on_trunk(
-                binding_profile, port_id, subports,
+                binding_profile, bond or port_id, subports,
                 trunk_details=port.get('trunk_details'))
 
         core_plugin = directory.get_plugin()
@@ -1293,6 +1305,8 @@ class GenericSwitchDriver(api.MechanismDriver):
         if not local_link_information:
             return
 
+        # Sub-port changes on a bonded host go to the aggregate too, once.
+        done = set()
         for link in local_link_information:
             port_id = link.get('port_id')
             switch_info = link.get('switch_info')
@@ -1300,9 +1314,16 @@ class GenericSwitchDriver(api.MechanismDriver):
             switch = device_utils.get_switch_device(
                 self.switches, switch_info=switch_info,
                 ngs_mac_address=switch_id)
+            if not switch:
+                continue
+            bond = self._aggregate_for_link(switch, binding_profile, link)
+            target = (id(switch), bond or port_id)
+            if target in done:
+                continue
+            done.add(target)
 
             switch.del_subports_on_trunk(
-                binding_profile, port_id, subports,
+                binding_profile, bond or port_id, subports,
                 trunk_details=port.get('trunk_details'))
 
         for subport in subports:

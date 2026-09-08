@@ -686,6 +686,49 @@ class TestGenericSwitchDriver(unittest.TestCase):
             'Port-Channel7', 17)
         self.switch_mock.delete_port.assert_not_called()
 
+    def test_subports_added_member_ports_go_to_aggregate(self, m_list):
+        self.switch_mock.get_port_channel.side_effect = (
+            lambda port_id: {'Ethernet29': 'Port-Channel7',
+                             'Ethernet30': 'Port-Channel7'}.get(port_id))
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        driver.configure_l2vni_for_subport = mock.MagicMock()
+        port = {'binding:profile':
+                {'local_link_information':
+                    [{'switch_info': 'foo', 'port_id': 'Ethernet29'},
+                     {'switch_info': 'foo', 'port_id': 'Ethernet30'}]},
+                'binding:vnic_type': 'baremetal',
+                'id': '123',
+                'trunk_details': {'sub_ports': [{'segmentation_id': 11}]}}
+        subports = [{'port_id': 'sub-1', 'segmentation_id': 11}]
+        with mock.patch.object(gsm.directory, 'get_plugin') as m_plugin:
+            m_plugin.return_value.get_port.return_value = {
+                'status': 'ACTIVE'}
+            driver.subports_added(self.ctxt, port, subports)
+        self.switch_mock.add_subports_on_trunk.assert_called_once_with(
+            port['binding:profile'], 'Port-Channel7', subports,
+            trunk_details=port['trunk_details'])
+
+    def test_subports_deleted_member_ports_go_to_aggregate(self, m_list):
+        self.switch_mock.get_port_channel.side_effect = (
+            lambda port_id: {'Ethernet29': 'Port-Channel7',
+                             'Ethernet30': 'Port-Channel7'}.get(port_id))
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        driver.cleanup_l2vni_for_subport = mock.MagicMock()
+        port = {'binding:profile':
+                {'local_link_information':
+                    [{'switch_info': 'foo', 'port_id': 'Ethernet29'},
+                     {'switch_info': 'foo', 'port_id': 'Ethernet30'}]},
+                'binding:vnic_type': 'baremetal',
+                'id': '123',
+                'trunk_details': {'sub_ports': []}}
+        subports = [{'port_id': 'sub-1', 'segmentation_id': 11}]
+        driver.subports_deleted(self.ctxt, port, subports)
+        self.switch_mock.del_subports_on_trunk.assert_called_once_with(
+            port['binding:profile'], 'Port-Channel7', subports,
+            trunk_details=port['trunk_details'])
+
     def test_delete_port_postcommit_failure(self, m_list):
         driver = gsm.GenericSwitchDriver()
         driver.initialize()
