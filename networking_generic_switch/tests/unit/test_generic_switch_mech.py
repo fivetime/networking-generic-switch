@@ -41,6 +41,10 @@ class TestGenericSwitchDriver(unittest.TestCase):
                                    'ip': 'ip'}
         self.switch_mock.get_physical_networks.return_value = []
         self.switch_mock.trunk_vlans_converge = False
+        # A plain Mock is truthy, and get_port_channel returning something
+        # truthy means "this port is a channel-group member". Default to
+        # the answer a switch with no ngs_port_channels gives.
+        self.switch_mock.get_port_channel.return_value = None
         self.ctxt = mock.MagicMock()
         self.db = mock.MagicMock()
         patcher = mock.patch(
@@ -514,6 +518,173 @@ class TestGenericSwitchDriver(unittest.TestCase):
         self.switch_mock.unplug_bond_from_network.assert_has_calls(
             [mock.call(2222, 123),
              mock.call(3333, 123)])
+
+    @mock.patch.object(provisioning_blocks, 'provisioning_complete',
+                       autospec=True)
+    def test_update_port_postcommit_member_ports_go_to_aggregate(
+            self, m_pc, m_list):
+        # Ironic's provisioning ports name the physical NIC and carry no
+        # group information. The switch knows those ports are channel-group
+        # members; the aggregate must be configured once, the members never.
+        self.switch_mock.get_port_channel.side_effect = (
+            lambda port_id: {'Ethernet29': 'Port-Channel7',
+                             'Ethernet30': 'Port-Channel7'}.get(port_id))
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        mock_context = mock.create_autospec(driver_context.PortContext)
+        mock_context._plugin_context = mock.MagicMock()
+        mock_context.current = {'binding:profile':
+                                {'local_link_information':
+                                    [
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet29'
+                                        },
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet30'
+                                        },
+                                    ]
+                                 },
+                                'binding:vnic_type': 'baremetal',
+                                'id': '123',
+                                'binding:vif_type': 'other',
+                                'status': 'DOWN'}
+        mock_context.original = {'binding:profile': {},
+                                 'binding:vnic_type': 'baremetal',
+                                 'id': '123',
+                                 'binding:vif_type': 'unbound'}
+        mock_context.bottom_bound_segment = {'segmentation_id': 17,
+                                             'physical_network': 'physnet1',
+                                             'network_id': 'aaaa-bbbb-ccc'}
+        driver.update_port_postcommit(mock_context)
+        self.switch_mock.plug_bond_to_network.assert_called_once_with(
+            'Port-Channel7', 17)
+        self.switch_mock.plug_port_to_network.assert_not_called()
+
+    @mock.patch.object(provisioning_blocks, 'provisioning_complete',
+                       autospec=True)
+    def test_update_port_postcommit_two_aggregates_stay_distinct(
+            self, m_pc, m_list):
+        self.switch_mock.get_port_channel.side_effect = (
+            lambda port_id: {'Ethernet29': 'Port-Channel7',
+                             'Ethernet27': 'Port-Channel6'}.get(port_id))
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        mock_context = mock.create_autospec(driver_context.PortContext)
+        mock_context._plugin_context = mock.MagicMock()
+        mock_context.current = {'binding:profile':
+                                {'local_link_information':
+                                    [
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet29'
+                                        },
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet27'
+                                        },
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet40'
+                                        },
+                                    ]
+                                 },
+                                'binding:vnic_type': 'baremetal',
+                                'id': '123',
+                                'binding:vif_type': 'other',
+                                'status': 'DOWN'}
+        mock_context.original = {'binding:profile': {},
+                                 'binding:vnic_type': 'baremetal',
+                                 'id': '123',
+                                 'binding:vif_type': 'unbound'}
+        mock_context.bottom_bound_segment = {'segmentation_id': 17,
+                                             'physical_network': 'physnet1',
+                                             'network_id': 'aaaa-bbbb-ccc'}
+        driver.update_port_postcommit(mock_context)
+        self.switch_mock.plug_bond_to_network.assert_has_calls(
+            [mock.call('Port-Channel7', 17), mock.call('Port-Channel6', 17)])
+        self.assertEqual(
+            2, self.switch_mock.plug_bond_to_network.call_count)
+        # Ethernet40 is not a member of anything: configured as itself.
+        self.switch_mock.plug_port_to_network.assert_called_once_with(
+            'Ethernet40', 17)
+
+    @mock.patch.object(provisioning_blocks, 'provisioning_complete',
+                       autospec=True)
+    def test_update_portgroup_postcommit_802_3ad_named_after_aggregate(
+            self, m_pc, m_list):
+        # No switch-side mapping, but ironic named the portgroup after the
+        # switch aggregate: one plug on that name, not one per member.
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        mock_context = mock.create_autospec(driver_context.PortContext)
+        mock_context._plugin_context = mock.MagicMock()
+        mock_context.current = {'binding:profile':
+                                {'local_link_information':
+                                    [
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet29'
+                                        },
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet30'
+                                        },
+                                    ],
+                                 'local_group_information':
+                                    {
+                                        'bond_mode': '802.3ad',
+                                        'name': 'Port-Channel7'
+                                    }
+                                 },
+                                'binding:vnic_type': 'baremetal',
+                                'id': '123',
+                                'binding:vif_type': 'other',
+                                'status': 'DOWN'}
+        mock_context.original = {'binding:profile': {},
+                                 'binding:vnic_type': 'baremetal',
+                                 'id': '123',
+                                 'binding:vif_type': 'unbound'}
+        mock_context.bottom_bound_segment = {'segmentation_id': 42,
+                                             'physical_network': 'physnet1',
+                                             'network_id': 'aaaa-bbbb-ccc'}
+        driver.update_port_postcommit(mock_context)
+        self.switch_mock.plug_bond_to_network.assert_called_once_with(
+            'Port-Channel7', 42)
+
+    def test_delete_port_postcommit_member_ports_go_to_aggregate(
+            self, m_list):
+        # The unplug side is where member ports were getting wiped.
+        self.switch_mock.get_port_channel.side_effect = (
+            lambda port_id: {'Ethernet29': 'Port-Channel7',
+                             'Ethernet30': 'Port-Channel7'}.get(port_id))
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        mock_context = mock.create_autospec(driver_context.PortContext)
+        mock_context.current = {'binding:profile':
+                                {'local_link_information':
+                                    [
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet29'
+                                        },
+                                        {
+                                            'switch_info': 'foo',
+                                            'port_id': 'Ethernet30'
+                                        },
+                                    ]
+                                 },
+                                'binding:vnic_type': 'baremetal',
+                                'binding:vif_type': 'other',
+                                'id': 'aaaa-bbbb-cccc'}
+        mock_context.bottom_bound_segment = {'segmentation_id': 17,
+                                             'physical_network': 'physnet1',
+                                             'network_id': 'aaaa-bbbb-ccc'}
+        driver.delete_port_postcommit(mock_context)
+        self.switch_mock.unplug_bond_from_network.assert_called_once_with(
+            'Port-Channel7', 17)
+        self.switch_mock.delete_port.assert_not_called()
 
     def test_delete_port_postcommit_failure(self, m_list):
         driver = gsm.GenericSwitchDriver()

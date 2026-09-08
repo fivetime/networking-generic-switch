@@ -102,6 +102,42 @@ class AristaEos(netmiko_devices.NetmikoSwitch):
         'switchport trunk allowed vlan add {segmentation_id}'
     )
 
+    # Link aggregations (Port-Channel) are configured declaratively: an
+    # unplug resets the aggregate to a known state, a plug writes the whole
+    # desired state, so the result does not depend on what the interface
+    # looked like before. With ngs_port_default_vlan set, plug_bond and
+    # unplug_bond both go through UNPLUG_BOND_FROM_NETWORK first, and an
+    # unplug leaves the aggregate on the default VLAN so a ramdisk can still
+    # boot through it. The aggregate is always a trunk: its native VLAN is
+    # the port's own network, trunk sub-ports add their VLANs on top. Member
+    # ports are never configured here - on EOS what a channel-group member
+    # carries is decided by the Port-Channel, and rewriting the members
+    # only drifts the static configuration on them (this is what these
+    # templates replaced: without them, plug_bond fell back to configuring
+    # each member as an access port and unplug wiped their trunk lists).
+    PLUG_BOND_TO_NETWORK = (
+        'interface {bond}',
+        'switchport mode trunk',
+        'switchport trunk native vlan {segmentation_id}',
+        'switchport trunk allowed vlan {segmentation_id}',
+    )
+
+    UNPLUG_BOND_FROM_NETWORK = (
+        'interface {bond}',
+        'no switchport trunk native vlan',
+        'switchport trunk allowed vlan none',
+    )
+
+    ENABLE_BOND = (
+        'interface {bond}',
+        'no shutdown',
+    )
+
+    DISABLE_BOND = (
+        'interface {bond}',
+        'shutdown',
+    )
+
     SET_NATIVE_VLAN_BOND = (
         'interface {bond}',
         'switchport mode trunk',

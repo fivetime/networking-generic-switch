@@ -61,6 +61,17 @@ NGS_INTERNAL_OPTS = [
     # default open, but setting empty string blocks all ports
     {'name': 'ngs_allowed_vlans'},
     {'name': 'ngs_allowed_ports'},
+    # Physical ports that are members of a link aggregation on the switch,
+    # keyed by the aggregate interface. Any plug or unplug that names a
+    # member port is applied to the aggregate instead, once per aggregate,
+    # and the member ports are never configured by NGS at all.
+    #   ngs_port_channels = Port-Channel7:Ethernet29,Ethernet30;
+    #                       Port-Channel6:Ethernet27,Ethernet28
+    # Ironic hands neutron one port per NIC (the provisioning ports carry
+    # no local_group_information at all), so without this a bonded host's
+    # member ports get configured one by one as access ports, and the
+    # aggregate that actually carries the traffic is never touched.
+    {'name': 'ngs_port_channels'},
     # Require security groups to be enabled on a per-device basis
     {'name': 'ngs_security_groups_enabled', 'default': False},
     # Force NETCONF datastore target ('candidate' or 'running').
@@ -148,6 +159,9 @@ class GenericSwitchDevice(abc.ABC):
         self.config = device_cfg
 
         self._validate_network_name_format()
+        # A malformed ngs_port_channels should stop neutron from starting,
+        # not surface on the first port plug.
+        self._port_channel_members()
 
     @property
     def support_trunk_on_ports(self):
@@ -177,6 +191,42 @@ class GenericSwitchDevice(abc.ABC):
         except (IndexError, KeyError):
             raise gsw_exc.GenericSwitchNetworkNameFormatInvalid(
                 name_format=network_name_format)
+
+    def get_port_channel(self, port_id):
+        """Return the aggregate interface a member port belongs to, if any.
+
+        :param port_id: A switch port name as it appears in
+            local_link_information (e.g. "Ethernet29").
+        :returns: The aggregate interface name (e.g. "Port-Channel7")
+            when ngs_port_channels lists port_id as a member, else None.
+        """
+        return self._port_channel_members().get(port_id)
+
+    def _port_channel_members(self):
+        """Parse ngs_port_channels into a {member: aggregate} mapping."""
+        raw = self.ngs_config.get('ngs_port_channels')
+        if not raw:
+            return {}
+        members = {}
+        for entry in raw.split(';'):
+            entry = entry.strip()
+            if not entry:
+                continue
+            if ':' not in entry:
+                raise gsw_exc.GenericSwitchPortChannelsInvalid(
+                    reason="entry %r has no ':'" % entry)
+            aggregate, member_list = entry.split(':', 1)
+            aggregate = aggregate.strip()
+            for member in member_list.split(','):
+                member = member.strip()
+                if not member:
+                    continue
+                if member in members and members[member] != aggregate:
+                    raise gsw_exc.GenericSwitchPortChannelsInvalid(
+                        reason="port %s is listed under both %s and %s"
+                        % (member, members[member], aggregate))
+                members[member] = aggregate
+        return members
 
     def get_trunk_ports(self):
         """Return a list of trunk ports on this switch."""

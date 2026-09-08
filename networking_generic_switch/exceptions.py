@@ -29,6 +29,11 @@ class GenericSwitchEntrypointLoadError(GenericSwitchException):
     message = _("Failed to load entrypoint %(ep)s: %(err)s")
 
 
+class GenericSwitchPortChannelsInvalid(GenericSwitchException):
+    message = _("Invalid value for 'ngs_port_channels': %(reason)s. "
+                "Expected '<aggregate>:<member>,<member>;<aggregate>:...'")
+
+
 class GenericSwitchNetworkNameFormatInvalid(GenericSwitchException):
     message = _("Invalid value for 'ngs_network_name_format': "
                 "%(name_format)s. Valid format options include 'network_id' "

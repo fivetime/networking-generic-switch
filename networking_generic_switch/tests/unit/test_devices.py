@@ -247,6 +247,35 @@ class TestDeviceManager(unittest.TestCase):
         trunk_ports = device.get_trunk_ports()
         self.assertEqual(["port1", "Po 1/30", "port42"], trunk_ports)
 
+    def test_get_port_channel(self):
+        device_cfg = {"ngs_port_channels":
+                      'Port-Channel7:Ethernet29, Ethernet30;'
+                      ' Port-Channel6:Ethernet27,Ethernet28;'}
+        device = FakeDevice(device_cfg)
+        self.assertEqual('Port-Channel7',
+                         device.get_port_channel('Ethernet29'))
+        self.assertEqual('Port-Channel7',
+                         device.get_port_channel('Ethernet30'))
+        self.assertEqual('Port-Channel6',
+                         device.get_port_channel('Ethernet27'))
+        self.assertIsNone(device.get_port_channel('Ethernet40'))
+
+    def test_get_port_channel_unset(self):
+        device = FakeDevice({})
+        self.assertIsNone(device.get_port_channel('Ethernet29'))
+
+    def test_get_port_channel_invalid_entry(self):
+        # A bad mapping fails at construction, i.e. at neutron startup.
+        self.assertRaises(exc.GenericSwitchPortChannelsInvalid,
+                          FakeDevice, {"ngs_port_channels": 'Ethernet29'})
+
+    def test_get_port_channel_member_in_two_aggregates(self):
+        self.assertRaises(exc.GenericSwitchPortChannelsInvalid,
+                          FakeDevice,
+                          {"ngs_port_channels":
+                           'Port-Channel7:Ethernet29;'
+                           'Port-Channel6:Ethernet29'})
+
     def test_get_physical_networks(self):
         device_cfg = {"ngs_physical_networks": 'net1,  net2, net3  '}
         device = FakeDevice(device_cfg)

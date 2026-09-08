@@ -396,6 +396,7 @@ class GenericSwitchDriver(api.MechanismDriver):
             if not self._is_link_valid(port, segment):
                 return
             is_802_3ad = ngs_utils.is_802_3ad(binding_profile)
+            plugged = set()
             for link in local_link_information:
                 port_id = link.get('port_id')
                 switch_info = link.get('switch_info')
@@ -411,23 +412,34 @@ class GenericSwitchDriver(api.MechanismDriver):
                 self._configure_l2vni_if_needed(
                     context, switch, switch_info, segment, segmentation_id)
 
+                bond = self._aggregate_for_link(switch, binding_profile,
+                                                link)
+                # A bonded host reaches neutron as one link per member
+                # port; the aggregate is configured once, not per member.
+                target = (id(switch), bond or port_id)
+                if target in plugged:
+                    continue
+                plugged.add(target)
+
                 LOG.debug("Putting switch port %(switch_port)s on "
                           "%(switch_info)s in vlan %(segmentation_id)s",
-                          {'switch_port': port_id, 'switch_info': switch_info,
+                          {'switch_port': bond or port_id,
+                           'switch_info': switch_info,
                            'segmentation_id': segmentation_id})
                 trunk_details = port.get('trunk_details', {})
                 plug_kwargs = {}
                 if trunk_details:
                     plug_kwargs["trunk_details"] = trunk_details
                 # Move port to network
-                if is_802_3ad:
+                if bond or is_802_3ad:
                     if (trunk_details and not
                             switch.support_trunk_on_bond_ports):
                         raise ngs_exc.GenericSwitchNotSupported(
                             feature="trunks",
                             switch=switch.device_name,
                             error="Trunks are not supported on bond ports.")
-                    switch.plug_bond_to_network(port_id, segmentation_id,
+                    switch.plug_bond_to_network(bond or port_id,
+                                                segmentation_id,
                                                 **plug_kwargs)
                 else:
                     if trunk_details and not switch.support_trunk_on_ports:
@@ -572,6 +584,36 @@ class GenericSwitchDriver(api.MechanismDriver):
             provisioning_blocks.add_provisioning_component(
                 context._plugin_context, port['id'], resources.PORT,
                 GENERIC_SWITCH_ENTITY)
+
+    @staticmethod
+    def _aggregate_for_link(switch, binding_profile, link):
+        """Return the switch aggregate a link should be configured on.
+
+        Two sources, in order:
+
+        * the switch's own ngs_port_channels mapping, which says which
+          physical ports are channel-group members. This covers the
+          provisioning ports ironic creates, which name the member port
+          and carry no group information at all;
+        * the ironic portgroup's name, passed by ironic in
+          local_group_information for a tenant VIF on an 802.3ad
+          portgroup, when it is named after the switch aggregate.
+
+        :returns: the aggregate interface name, or None when the link
+            is a plain port and should be configured as itself.
+        """
+        port_id = link.get('port_id')
+        if switch is None or port_id is None:
+            return None
+        bond = switch.get_port_channel(port_id)
+        if bond:
+            return bond
+        if ngs_utils.is_802_3ad(binding_profile):
+            name = (binding_profile.get('local_group_information') or
+                    {}).get('name')
+            if name:
+                return name
+        return None
 
     def _is_link_valid(self, port, segment):
         """Return whether a link references valid switch and segment.
@@ -1104,6 +1146,7 @@ class GenericSwitchDriver(api.MechanismDriver):
             return
 
         is_802_3ad = ngs_utils.is_802_3ad(binding_profile)
+        unplugged = set()
         for link in local_link_information:
             switch_info = link.get('switch_info')
             switch_id = link.get('switch_id')
@@ -1113,15 +1156,21 @@ class GenericSwitchDriver(api.MechanismDriver):
             if not switch:
                 continue
             port_id = link.get('port_id')
+            bond = self._aggregate_for_link(switch, binding_profile, link)
+            target = (id(switch), bond or port_id)
+            if target in unplugged:
+                continue
+            unplugged.add(target)
             # If segmentation ID is None, set vlan 1
             segmentation_id = segment.get(api.SEGMENTATION_ID) or 1
             LOG.debug("Unplugging port %(port)s on %(switch_info)s from vlan: "
                       "%(segmentation_id)s",
-                      {'port': port_id, 'switch_info': switch_info,
+                      {'port': bond or port_id, 'switch_info': switch_info,
                        'segmentation_id': segmentation_id})
             try:
-                if is_802_3ad:
-                    switch.unplug_bond_from_network(port_id, segmentation_id)
+                if bond or is_802_3ad:
+                    switch.unplug_bond_from_network(bond or port_id,
+                                                    segmentation_id)
                 else:
                     switch.delete_port(port_id, segmentation_id)
             except Exception as e:
