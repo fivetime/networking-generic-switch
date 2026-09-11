@@ -704,7 +704,8 @@ class TestGenericSwitchDriver(unittest.TestCase):
                 'id': '123',
                 'trunk_details': {'sub_ports': [{'segmentation_id': 11}]}}
         subports = [{'port_id': 'sub-1', 'segmentation_id': 11}]
-        with mock.patch.object(gsm.directory, 'get_plugin') as m_plugin:
+        with mock.patch.object(gsm.directory, 'get_plugin',
+                               autospec=True) as m_plugin:
             m_plugin.return_value.get_port.return_value = {
                 'status': 'ACTIVE'}
             driver.subports_added(self.ctxt, port, subports)

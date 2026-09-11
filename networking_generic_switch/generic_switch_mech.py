@@ -615,8 +615,8 @@ class GenericSwitchDriver(api.MechanismDriver):
         if isinstance(bond, str) and bond:
             return bond
         if ngs_utils.is_802_3ad(binding_profile):
-            name = (binding_profile.get('local_group_information') or
-                    {}).get('name')
+            group = binding_profile.get('local_group_information') or {}
+            name = group.get('name')
             if isinstance(name, str) and name:
                 return name
         return None
