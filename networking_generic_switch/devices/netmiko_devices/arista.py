@@ -102,6 +102,30 @@ class AristaEos(netmiko_devices.NetmikoSwitch):
         'switchport trunk allowed vlan add {segmentation_id}'
     )
 
+    # The binding profile supplies the switch aggregate interface name.
+    PLUG_BOND_TO_NETWORK = (
+        'interface {bond}',
+        'switchport mode trunk',
+        'switchport trunk native vlan {segmentation_id}',
+        'switchport trunk allowed vlan {segmentation_id}',
+    )
+
+    UNPLUG_BOND_FROM_NETWORK = (
+        'interface {bond}',
+        'no switchport trunk native vlan',
+        'switchport trunk allowed vlan none',
+    )
+
+    ENABLE_BOND = (
+        'interface {bond}',
+        'no shutdown',
+    )
+
+    DISABLE_BOND = (
+        'interface {bond}',
+        'shutdown',
+    )
+
     SET_NATIVE_VLAN_BOND = (
         'interface {bond}',
         'switchport mode trunk',

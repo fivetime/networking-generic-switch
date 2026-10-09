@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    The Arista EOS driver now has dedicated plug and unplug commands for
+    aggregate interfaces on 802.3ad bindings. It configures the aggregate
+    as a trunk with the bound network as its native VLAN, and restores
+    the configured default VLAN on unbind. Previously these operations
+    fell back to the regular access-port commands. The switch aggregate
+    interface must be supplied as the binding link's ``port_id``; NGS
+    does not discover or create link aggregations.

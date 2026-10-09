@@ -205,8 +205,7 @@ class TestNetmikoAristaEos(test_netmiko_base.NetmikoSwitchTestBase):
         mock_exec.assert_called_with(
             self.switch,
             ['interface 4444',
-             'no switchport access vlan 44',
-             'no switchport mode trunk',
+             'no switchport trunk native vlan',
              'switchport trunk allowed vlan none',
              'interface 4444',
              'no switchport trunk native vlan 44',
@@ -215,6 +214,66 @@ class TestNetmikoAristaEos(test_netmiko_base.NetmikoSwitchTestBase):
              'switchport trunk allowed vlan remove tag1',
              'interface 4444',
              'switchport trunk allowed vlan remove tag2'])
+
+    @mock.patch('networking_generic_switch.devices.netmiko_devices.'
+                'NetmikoSwitch.send_commands_to_device',
+                return_value='', autospec=True)
+    def test_plug_bond_to_network(self, mock_exec):
+        # An aggregate is always a trunk whose native VLAN is the port's
+        # network; the allowed list is *set*, not added to.
+        self.switch.plug_bond_to_network('Port-Channel7', 17)
+        mock_exec.assert_called_with(
+            self.switch,
+            ['interface Port-Channel7',
+             'switchport mode trunk',
+             'switchport trunk native vlan 17',
+             'switchport trunk allowed vlan 17'])
+
+    @mock.patch('networking_generic_switch.devices.netmiko_devices.'
+                'NetmikoSwitch.send_commands_to_device',
+                return_value='', autospec=True)
+    def test_plug_bond_to_network_converges_from_any_state(self, mock_exec):
+        # With a default VLAN configured, a plug first resets the aggregate
+        # and then writes the whole desired state, so whatever the
+        # interface looked like before does not matter.
+        self.switch.ngs_config['ngs_port_default_vlan'] = 17
+        trunk_details = {"sub_ports": [{"segmentation_id": 11},
+                                       {"segmentation_id": 12}]}
+        self.switch.plug_bond_to_network('Port-Channel7', 17,
+                                         trunk_details=trunk_details)
+        mock_exec.assert_called_with(
+            self.switch,
+            ['interface Port-Channel7',
+             'no switchport trunk native vlan',
+             'switchport trunk allowed vlan none',
+             'interface Port-Channel7',
+             'switchport mode trunk',
+             'switchport trunk native vlan 17',
+             'switchport trunk allowed vlan add 17',
+             'interface Port-Channel7',
+             'switchport trunk allowed vlan add 11',
+             'interface Port-Channel7',
+             'switchport trunk allowed vlan add 12'])
+
+    @mock.patch('networking_generic_switch.devices.netmiko_devices.'
+                'NetmikoSwitch.send_commands_to_device',
+                return_value='', autospec=True)
+    def test_unplug_bond_from_network_leaves_default_vlan(self, mock_exec):
+        # After an unplug the aggregate is parked on the default VLAN as a
+        # trunk, so a ramdisk can still boot through it next time.
+        self.switch.ngs_config['ngs_port_default_vlan'] = 17
+        self.switch.unplug_bond_from_network('Port-Channel7', 17)
+        mock_exec.assert_called_with(
+            self.switch,
+            ['interface Port-Channel7',
+             'no switchport trunk native vlan',
+             'switchport trunk allowed vlan none',
+             'vlan 17',
+             'name 17',
+             'interface Port-Channel7',
+             'switchport mode trunk',
+             'switchport trunk native vlan 17',
+             'switchport trunk allowed vlan 17'])
 
     @mock.patch('networking_generic_switch.devices.netmiko_devices.'
                 'NetmikoSwitch.send_commands_to_device',

@@ -296,6 +296,23 @@ not just the delta), it writes the complete set of trunk VLANs in a single
 operation. This ensures the switch converges to the desired state regardless
 of any intermediate inconsistencies.
 
+Arista EOS aggregate interfaces
+===============================
+
+For an 802.3ad binding, the Arista EOS driver configures the switch
+aggregate as a trunk, using the port's network as its native VLAN. On
+unbind it clears the aggregate's native and allowed VLANs, then restores
+``ngs_port_default_vlan`` if configured.
+
+The binding profile must identify the switch aggregate interface in
+``local_link_information.port_id`` (for example, ``Port-Channel7``) and
+specify ``4`` or ``802.3ad`` in
+``local_group_information.bond_mode``. NGS does not infer a switch
+interface from the Ironic portgroup name or map physical member ports to
+aggregates. The aggregate and its member assignments must already exist
+on the switch. Bindings for other bond modes continue to configure the
+individual interfaces identified by their links.
+
 .. _physicalnetworks:
 
 Multiple physical networks
