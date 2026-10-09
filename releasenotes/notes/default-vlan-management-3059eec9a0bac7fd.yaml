@@ -1,0 +1,9 @@
+---
+fixes:
+  - |
+    Netmiko drivers now honor ``ngs_manage_vlans=False`` when restoring
+    the default VLAN during port or bond unbind. The interface is still
+    assigned to the configured default VLAN, but no VLAN creation or
+    naming commands are issued when VLAN management is explicitly
+    disabled. The default behavior with VLAN management enabled is
+    unchanged.

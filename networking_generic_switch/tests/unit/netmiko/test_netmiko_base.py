@@ -759,6 +759,32 @@ class TestNetmikoSwitch(NetmikoSwitchTestBase):
         ])
         m_check.assert_called_once_with(switch, 'fake output', 'unplug bond')
 
+    @mock.patch.object(netmiko_devices.NetmikoSwitch,
+                       'send_commands_to_device', return_value='fake output',
+                       autospec=True)
+    @mock.patch.object(netmiko_devices.NetmikoSwitch, 'check_output',
+                       autospec=True)
+    def test_default_vlan_restore_respects_management(self, m_check, m_send):
+        for operation, remove, plug in (
+                ('delete_port', 'delete port', 'plug port'),
+                ('unplug_bond_from_network', 'unplug bond', 'plug bond')):
+            for manage in (True, False):
+                for override in (None, 30):
+                    with self.subTest(operation=operation, manage=manage,
+                                      override=override):
+                        switch = self._make_switch_device({
+                            'ngs_port_default_vlan': '20',
+                            'ngs_manage_vlans': manage})
+                        vlan = override or 20
+                        getattr(switch, operation)(
+                            2222, 22, default_vlan=override)
+                        commands = [f'{remove} 2222 from network 22']
+                        if manage:
+                            commands.append(
+                                f'add network {vlan} {vlan} {vlan}')
+                        commands.append(f'{plug} 2222 to network {vlan}')
+                        m_send.assert_called_with(switch, commands)
+
     def test__format_commands(self):
         self.switch.ADD_NETWORK = (
             'add network {segmentation_id} {network_id}',

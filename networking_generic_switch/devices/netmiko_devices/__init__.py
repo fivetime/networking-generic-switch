@@ -703,13 +703,14 @@ class NetmikoSwitch(devices.GenericSwitchDevice):
         if port_default_vlan:
             # NOTE(mgoddard): Pass network_id and segmentation_id for drivers
             # not yet using network_name.
-            network_name = self._get_network_name(port_default_vlan,
-                                                  port_default_vlan)
-            cmds += self._format_commands(
-                self.ADD_NETWORK,
-                segmentation_id=port_default_vlan,
-                network_id=port_default_vlan,
-                network_name=network_name)
+            if self._do_vlan_management():
+                network_name = self._get_network_name(port_default_vlan,
+                                                      port_default_vlan)
+                cmds += self._format_commands(
+                    self.ADD_NETWORK,
+                    segmentation_id=port_default_vlan,
+                    network_id=port_default_vlan,
+                    network_name=network_name)
             cmds += self._format_commands(
                 self.PLUG_PORT_TO_NETWORK,
                 port=port,
@@ -819,13 +820,14 @@ class NetmikoSwitch(devices.GenericSwitchDevice):
         if port_default_vlan:
             # NOTE(mgoddard): Pass network_id and segmentation_id for drivers
             # not yet using network_name.
-            network_name = self._get_network_name(port_default_vlan,
-                                                  port_default_vlan)
-            cmds += self._format_commands(
-                self.ADD_NETWORK,
-                segmentation_id=port_default_vlan,
-                network_id=port_default_vlan,
-                network_name=network_name)
+            if self._do_vlan_management():
+                network_name = self._get_network_name(port_default_vlan,
+                                                      port_default_vlan)
+                cmds += self._format_commands(
+                    self.ADD_NETWORK,
+                    segmentation_id=port_default_vlan,
+                    network_id=port_default_vlan,
+                    network_name=network_name)
             cmds += self._format_commands(
                 self.PLUG_BOND_TO_NETWORK,
                 bond=bond,
