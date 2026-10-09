@@ -1,0 +1,8 @@
+---
+fixes:
+  - |
+    Repeated links to the same switch interface in an 802.3ad binding
+    profile are now configured once per bind, unbind or trunk subport
+    update. Distinct switch interfaces and links for other bond modes
+    retain their existing behavior. Interface names come from the link
+    ``port_id`` rather than the Ironic portgroup name.

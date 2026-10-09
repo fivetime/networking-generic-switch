@@ -396,7 +396,7 @@ class GenericSwitchDriver(api.MechanismDriver):
             if not self._is_link_valid(port, segment):
                 return
             is_802_3ad = ngs_utils.is_802_3ad(binding_profile)
-            for link in local_link_information:
+            for link in self._unique_binding_links(binding_profile):
                 port_id = link.get('port_id')
                 switch_info = link.get('switch_info')
                 switch_id = link.get('switch_id')
@@ -575,6 +575,20 @@ class GenericSwitchDriver(api.MechanismDriver):
             provisioning_blocks.add_provisioning_component(
                 context._plugin_context, port['id'], resources.PORT,
                 GENERIC_SWITCH_ENTITY)
+
+    @staticmethod
+    def _unique_binding_links(binding_profile):
+        """Configure repeated 802.3ad links once per switch interface."""
+        seen = set()
+        is_802_3ad = ngs_utils.is_802_3ad(binding_profile)
+        for link in binding_profile.get('local_link_information', []):
+            if is_802_3ad:
+                target = (link.get('switch_info'), link.get('switch_id'),
+                          link.get('port_id'))
+                if target in seen:
+                    continue
+                seen.add(target)
+            yield link
 
     def _is_link_valid(self, port, segment):
         """Return whether a link references valid switch and segment.
@@ -1131,7 +1145,7 @@ class GenericSwitchDriver(api.MechanismDriver):
             return
 
         is_802_3ad = ngs_utils.is_802_3ad(binding_profile)
-        for link in local_link_information:
+        for link in self._unique_binding_links(binding_profile):
             switch_info = link.get('switch_info')
             switch_id = link.get('switch_id')
             switch = device_utils.get_switch_device(
@@ -1225,7 +1239,7 @@ class GenericSwitchDriver(api.MechanismDriver):
         if not local_link_information:
             return
 
-        for link in local_link_information:
+        for link in self._unique_binding_links(binding_profile):
             port_id = link.get('port_id')
             switch_info = link.get('switch_info')
             switch_id = link.get('switch_id')
@@ -1271,7 +1285,7 @@ class GenericSwitchDriver(api.MechanismDriver):
         if not local_link_information:
             return
 
-        for link in local_link_information:
+        for link in self._unique_binding_links(binding_profile):
             port_id = link.get('port_id')
             switch_info = link.get('switch_info')
             switch_id = link.get('switch_id')

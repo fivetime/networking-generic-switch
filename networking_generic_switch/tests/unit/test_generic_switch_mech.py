@@ -52,6 +52,76 @@ class TestGenericSwitchDriver(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def _check_binding_link_operations(self, links, mode, expected_ports):
+        driver = gsm.GenericSwitchDriver()
+        driver.initialize()
+        driver.switches['bar'] = self.switch_mock
+        self.switch_mock.reset_mock()
+        profile = {'local_link_information': links}
+        if mode is not None:
+            profile['local_group_information'] = {
+                'bond_mode': mode, 'name': 'host-bond-not-a-switch-interface'}
+        port = {'binding:profile': profile,
+                'binding:vnic_type': 'baremetal',
+                'binding:vif_type': 'other', 'id': 'parent', 'status': 'DOWN'}
+        context = mock.create_autospec(driver_context.PortContext)
+        context._plugin_context = mock.sentinel.plugin_context
+        context.current = port
+        context.original = {'binding:profile': {},
+                            'binding:vnic_type': 'baremetal',
+                            'binding:vif_type': 'unbound', 'id': 'parent'}
+        segment = {'segmentation_id': 42, 'physical_network': 'physnet1',
+                   'network_type': 'vlan', 'network_id': 'network'}
+        context.bottom_bound_segment = segment
+        with mock.patch.object(provisioning_blocks, 'provisioning_complete',
+                               autospec=True):
+            driver.update_port_postcommit(context)
+        driver._unplug_port_from_segment(context, port, segment)
+        if mode in ('4', '802.3ad'):
+            plug = self.switch_mock.plug_bond_to_network
+            unplug = self.switch_mock.unplug_bond_from_network
+            self.switch_mock.plug_port_to_network.assert_not_called()
+            self.switch_mock.delete_port.assert_not_called()
+        else:
+            plug = self.switch_mock.plug_port_to_network
+            unplug = self.switch_mock.delete_port
+            self.switch_mock.plug_bond_to_network.assert_not_called()
+            self.switch_mock.unplug_bond_from_network.assert_not_called()
+        calls = [mock.call(p, 42) for p in expected_ports]
+        self.assertEqual(calls, plug.call_args_list)
+        self.assertEqual(calls, unplug.call_args_list)
+        with mock.patch.object(directory, 'get_plugin', autospec=True):
+            driver.subports_added(context, port, [])
+        driver.subports_deleted(context, port, [])
+        trunk_calls = [mock.call(profile, p, [], trunk_details=None)
+                       for p in expected_ports]
+        self.assertEqual(trunk_calls,
+                         self.switch_mock.add_subports_on_trunk.call_args_list)
+        self.assertEqual(trunk_calls,
+                         self.switch_mock.del_subports_on_trunk.call_args_list)
+
+    def test_duplicate_802_3ad_links(self, m_list):
+        links = [{'switch_info': 'foo', 'port_id': 'Port-Channel7'}] * 2
+        for mode in ('4', '802.3ad'):
+            with self.subTest(mode=mode):
+                self._check_binding_link_operations(
+                    links, mode, ['Port-Channel7'])
+
+    def test_distinct_802_3ad_switch_interfaces(self, m_list):
+        links = [{'switch_info': 'foo', 'port_id': 'Port-Channel7'},
+                 {'switch_info': 'foo', 'port_id': 'Port-Channel8'},
+                 {'switch_info': 'bar', 'port_id': 'Port-Channel7'}]
+        self._check_binding_link_operations(
+            links, '4', ['Port-Channel7', 'Port-Channel8', 'Port-Channel7'])
+
+    def test_non_lacp_links_remain_individual_ports(self, m_list):
+        links = [{'switch_info': 'foo', 'port_id': 'Ethernet29'},
+                 {'switch_info': 'foo', 'port_id': 'Ethernet30'}]
+        for mode in (None, '0', 'balance-rr', '1', 'active-backup'):
+            with self.subTest(mode=mode):
+                self._check_binding_link_operations(
+                    links, mode, ['Ethernet29', 'Ethernet30'])
+
     def test_create_network_postcommit(self, m_list):
         driver = gsm.GenericSwitchDriver()
         driver.initialize()
